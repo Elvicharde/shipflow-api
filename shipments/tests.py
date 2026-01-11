@@ -51,3 +51,23 @@ class ShipmentSerializerCloneAPITests(TestCase):
         self.assertEqual(self.s1.ship_from.city, 'PatchedCity')
         self.assertNotEqual(self.s1.ship_from.id, self.from_addr.id)
         self.assertEqual(self.s2.ship_from.id, self.from_addr.id)
+
+
+class AddressVerificationTests(TestCase):
+    def setUp(self):
+        self.pkg = Package.objects.create(weight_lbs=1, weight_oz=0)
+
+    def test_upload_verifies_addresses(self):
+        from io import StringIO
+        from .services import process_csv_upload
+
+        csv_text = "header1,header2\nh1,h2\nFrom Name,From Addr1,,City,State,12345,1234567890,To Name,To Addr1,,ToCity,ToState,54321,0987654321,SKU123,10,5,2,1,0,Priority,1500,ORD123\n"
+        summary = process_csv_upload(StringIO(csv_text))
+        self.assertEqual(summary['created'], 1)
+        # Verify that addresses stored are marked verified (Geoapify/USPS heuristics)
+        shipments = Shipment.objects.all()
+        self.assertEqual(shipments.count(), 1)
+        s = shipments.first()
+        self.assertTrue(s.ship_from.is_verified)
+        self.assertTrue(s.ship_to.is_verified)
+

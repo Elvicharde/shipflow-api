@@ -14,6 +14,12 @@ class Address(models.Model):
     postal_code = models.CharField(max_length=20)
     phone = models.CharField(max_length=32, blank=True, default='')
 
+    # Verification fields
+    is_verified = models.BooleanField(default=False)
+    verification_provider = models.CharField(max_length=64, blank=True, default='')
+    verified_at = models.DateTimeField(null=True, blank=True)
+    verification_metadata = models.JSONField(null=True, blank=True, default=dict)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

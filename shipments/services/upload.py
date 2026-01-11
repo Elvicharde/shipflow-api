@@ -52,6 +52,31 @@ def process_csv_upload(file_like) -> Dict[str, Any]:
         payload = dict(row['data'])
         payload['upload_session'] = session.pk
 
+        # Run address verification for ship_from and ship_to (non-blocking)
+        try:
+            from .address_verification import AddressVerificationService
+            avs = AddressVerificationService()
+            for addr_key in ('ship_from', 'ship_to'):
+                addr_data = payload.get(addr_key, {})
+                try:
+                    result = avs.verify_address(addr_data, country_code=None)
+                except Exception as e:
+                    result = {'ok': False, 'error': str(e)}
+                if result.get('ok'):
+                    addr_data['is_verified'] = True
+                    addr_data['verification_provider'] = result.get('provider')
+                    # datetime to ISO string
+                    if result.get('verified_at'):
+                        addr_data['verified_at'] = result.get('verified_at').isoformat()
+                    addr_data['verification_metadata'] = result.get('metadata') or {}
+                else:
+                    addr_data['is_verified'] = False
+                    addr_data.setdefault('verification_metadata', {})
+                payload[addr_key] = addr_data
+        except ImportError:
+            # verification service not available; continue without verifying
+            pass
+
         serializer = ShipmentSerializer(data=payload)
         if not serializer.is_valid():
             errors.append({'row': row_idx, 'errors': serializer.errors})

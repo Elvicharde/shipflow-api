@@ -73,11 +73,11 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DATABASE_URL').split('/')[-1],
-        'USER': config('DATABASE_URL').split(':')[1].split('//')[1],
-        'PASSWORD': config('DATABASE_URL').split(':')[2].split('@')[0],
-        'HOST': config('DATABASE_URL').split('@')[1].split(':')[0],
-        'PORT': config('DATABASE_URL').split(':')[-1],
+        'NAME': config('DB_NAME'),
+        'USER': config('DB_USER'),
+        'PASSWORD': config('DB_PASSWORD'),
+        'HOST': config('DB_HOST', default='localhost'),
+        'PORT': config('DB_PORT', default='5432'),
     }
 }
 
@@ -121,3 +121,50 @@ STATIC_URL = 'static/'
 # Security settings
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
+
+
+ADDRESS_VERIFICATION_CHAIN = [
+    {
+        'name': 'usps',
+        'enabled': True,
+        'countries': ['US'],
+        'daily_limit': None,  # No hard limit
+    },
+    {
+        'name': 'geoapify',
+        'enabled': True,
+        'countries': ['*'],  # Global
+        'daily_limit': 3000,
+    },
+    {
+        'name': 'here',
+        'enabled': True,
+        'countries': ['*'],
+        'daily_limit': 1000,
+    },
+    {
+        'name': 'mapbox',
+        'enabled': True,
+        'countries': ['*'],
+        'monthly_limit': 100000,
+    },
+    {
+        'name': 'google',
+        'enabled': False,  # Enable when ready to pay
+        'countries': ['*'],
+        'cost_per_1000': 5.00,
+    },
+]
+
+# Address Verification configuration (API keys, cache TTL, circuit breakers)
+from decouple import config
+ADDRESS_VERIFICATION = {
+    'USPS_USER_ID': config('USPS_USER_ID', default=''),
+    'GEOAPIFY_API_KEY': config('GEOAPIFY_API_KEY', default=''),
+    'HERE_API_KEY': config('HERE_API_KEY', default=''),
+    'MAPBOX_ACCESS_TOKEN': config('MAPBOX_ACCESS_TOKEN', default=''),
+    'GOOGLE_API_KEY': config('GOOGLE_API_KEY', default=''),
+    'CACHE_TTL': int(config('ADDRESS_VERIFICATION_CACHE_TTL', default=30 * 24 * 60 * 60)),  # 30 days
+    'CIRCUIT_BREAKER_THRESHOLD': int(config('ADDRESS_VERIFICATION_CIRCUIT_BREAKER_THRESHOLD', default=5)),
+    'CIRCUIT_BREAKER_TIMEOUT': int(config('ADDRESS_VERIFICATION_CIRCUIT_BREAKER_TIMEOUT', default=300)),
+}

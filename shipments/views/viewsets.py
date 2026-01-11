@@ -127,6 +127,40 @@ class SavedAddressViewSet(viewsets.ModelViewSet):
     queryset = SavedAddress.objects.select_related("address").all()
     serializer_class = SavedAddressSerializer
 
+    def create(self, request, *args, **kwargs):
+        # Intercept creation to ensure the referenced Address is verified
+        address_id = request.data.get('address_id')
+        if address_id:
+            try:
+                from ..services.address_verification import AddressVerificationService
+                from ..models import Address
+
+                addr = Address.objects.get(pk=address_id)
+                if not addr.is_verified:
+                    avs = AddressVerificationService()
+                    try:
+                        res = avs.verify_address({
+                            'name': addr.name,
+                            'address_line1': addr.address_line1,
+                            'address_line2': addr.address_line2,
+                            'city': addr.city,
+                            'state': addr.state,
+                            'postal_code': addr.postal_code,
+                            'phone': addr.phone,
+                        }, country_code=None)
+                    except Exception:
+                        res = {'ok': False}
+                    if res.get('ok'):
+                        addr.is_verified = True
+                        addr.verification_provider = res.get('provider') or ''
+                        addr.verified_at = res.get('verified_at')
+                        addr.verification_metadata = res.get('metadata') or {}
+                        addr.save()
+            except Exception:
+                # Be permissive: don't fail SavedAddress creation if verification service errors
+                pass
+        return super().create(request, *args, **kwargs)
+
 
 class SavedPackageViewSet(viewsets.ModelViewSet):
     queryset = SavedPackage.objects.select_related("package").all()
