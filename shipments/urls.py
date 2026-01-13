@@ -7,7 +7,7 @@ from .views.viewsets import (
     SavedAddressViewSet,
     SavedPackageViewSet,
 )
-from .views.upload import UploadCSVView  # keep legacy single-route alias
+from .views.upload import UploadCSVView, UploadSessionDetailView  # keep legacy single-route alias
 from .views.checkout import CheckoutView
 from .views.review import ShipmentEditView
 from .views.purchase import PurchaseView
@@ -31,4 +31,7 @@ urlpatterns = [
     # Optionally, a unified bulk update endpoint (implement if needed)
     # path('shipments/bulk-update/', BulkUpdateShipmentsView.as_view(), name='shipments-bulk-update'),
     path('shipments/<int:shipment_id>', ShipmentEditView.as_view(), name='shipment-edit'),
+
+    # Upload session detail endpoint for UploadResponse
+    path('uploads/upload-session/<uuid:upload_session_id>/', UploadSessionDetailView.as_view(), name='upload-session-detail'),
 ]

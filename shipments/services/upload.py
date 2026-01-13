@@ -11,6 +11,30 @@ from ..models.package import Package
 from .validation import validate_row
 from .csv_parser import parse_csv
 
+def format_address(addr: Address | None) -> str:
+    if not addr:
+        return None
+    parts = [
+        addr.address_line1,
+        addr.address_line2,
+        addr.city,
+        addr.state,
+        addr.postal_code,
+    ]
+    return ', '.join([str(p) for p in parts if p]).rstrip(',').strip()
+
+def format_package(pkg: Package | None) -> dict:
+    if not pkg:
+        return None
+    return {
+        "length_in": pkg.length_in,
+        "width_in": pkg.width_in,
+        "height_in": pkg.height_in,
+        "weight_lbs": pkg.weight_lbs,
+        "weight_oz": pkg.weight_oz,
+    }
+
+
 
 def process_csv_upload(file_like) -> Dict[str, Any]:
     """
@@ -79,6 +103,7 @@ def process_csv_upload(file_like) -> Dict[str, Any]:
                     validation_status=validation_status,
                     validation_errors=field_errors or {},
                     pricing_status=PricingStatus.UNPRICED,
+                    row_number=idx,
                 )
 
             # Tally counts & per-row result
@@ -95,6 +120,10 @@ def process_csv_upload(file_like) -> Dict[str, Any]:
                 "errors": field_errors or {},
                 "price": price,
                 "currency": currency,
+                "ship_from_address": format_address(ship_from_obj),
+                "ship_to_address": format_address(ship_to_obj),
+                "package_details": format_package(package_obj),
+                "order_number": getattr(shipment, "order_number", None),
             })
 
         except Exception as exc:
@@ -109,6 +138,10 @@ def process_csv_upload(file_like) -> Dict[str, Any]:
                 "errors": persist_errors,
                 "price": None,
                 "currency": currency,
+                "ship_from_address": None,
+                "ship_to_address": None,
+                "package_details": None,
+                "order_number": None,
             })
 
     # Update session aggregates & status

@@ -37,6 +37,54 @@ class ShipmentViewSet(viewsets.ModelViewSet):
         if self.action in ["create", "update", "partial_update"]:
             return ShipmentWriteSerializer
         return ShipmentReadSerializer
+    
+    @action(detail=True, methods=["get"], url_path="by-session")
+    def by_session(self, request, pk=None):
+        """
+        Get a single shipment by upload_session_id (from pk) and shipment_id (from query params), with optional filters.
+        Usage: /shipments/{pk}/by-session/?shipment_id=...&status=...&order_number=...
+        """
+        shipment_id = request.query_params.get("shipment_id")
+        if not pk or not shipment_id:
+            return Response({"detail": "upload_session_id (pk) and shipment_id are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = Shipment.objects.filter(upload_session__id=pk, id=shipment_id)
+
+        # Optional query param filtering
+        status_param = request.query_params.get("status")
+        ship_from_name = request.query_params.get("ship_from_name")
+        ship_to_name = request.query_params.get("ship_to_name")
+        order_number = request.query_params.get("order_number")
+
+        if status_param:
+            qs = qs.filter(status=status_param)
+        if ship_from_name:
+            qs = qs.filter(ship_from__name__icontains=ship_from_name)
+        if ship_to_name:
+            qs = qs.filter(ship_to__name__icontains=ship_to_name)
+        if order_number:
+            qs = qs.filter(order_number__icontains=order_number)
+
+        shipment = qs.first()
+        if not shipment:
+            return Response({"detail": "Shipment not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        fields = request.query_params.get("fields")
+        if fields in ["ship_from", "ship_to", "package"]:
+            # Return only the requested part
+            data = getattr(shipment, fields, None)
+            if data is None:
+                return Response({"detail": f"Field '{fields}' not found on shipment."}, status=status.HTTP_400_BAD_REQUEST)
+            # If it's a related object, serialize it
+            from ..serializers.shipment import AddressSerializer, PackageSerializer
+            if fields in ["ship_from", "ship_to"]:
+                serializer = AddressSerializer(data, context={"request": request})
+            elif fields == "package":
+                serializer = PackageSerializer(data, context={"request": request})
+            return Response(serializer.data)
+        else:
+            serializer = self.get_serializer(shipment, context={"request": request})
+            return Response(serializer.data)
 
     @action(detail=True, methods=["post"], url_path="assign-service")
     def assign_service(self, request, pk=None):
@@ -80,6 +128,18 @@ class ShipmentViewSet(viewsets.ModelViewSet):
         ser.is_valid(raise_exception=True)
         result = delete_shipments(ser.validated_data["shipment_ids"])
         return Response(result)
+
+    @action(detail=False, methods=["post", "delete"], url_path="delete-shipment")
+    def delete_shipment(self, request):
+        shipment_id = request.data.get("shipment_id") or request.query_params.get("shipment_id")
+        if not shipment_id:
+            return Response({"detail": "shipment_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            shipment = Shipment.objects.get(id=shipment_id)
+            shipment.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Shipment.DoesNotExist:
+            return Response({"detail": "Shipment not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
 class UploadSessionViewSet(viewsets.ReadOnlyModelViewSet):

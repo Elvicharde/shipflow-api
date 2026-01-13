@@ -38,6 +38,7 @@ class Shipment(models.Model):
     upload_session = models.ForeignKey(
         UploadSession, on_delete=models.CASCADE, related_name='shipments'
     )
+    row_number = models.PositiveIntegerField(null=True, blank=True, help_text="CSV row number for upload tracking")
     ship_from = models.ForeignKey(
         Address, on_delete=models.PROTECT, related_name='shipments_from'
     )

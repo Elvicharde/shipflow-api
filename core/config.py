@@ -6,7 +6,6 @@ class Config:
     # Core
     DEBUG = config('DEBUG', default=False, cast=bool)
     SECRET_KEY = config('SECRET_KEY')
-    ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost', cast=Csv())
     
     # Database
     DATABASE_URL = config('DATABASE_URL')
@@ -18,6 +17,8 @@ class Config:
     
     # CORS
     CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', cast=Csv())
+    CORS_ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost', cast=Csv())
+
     
     # External Services
     USPS_USER_ID = config('USPS_USER_ID', default='xxxx')

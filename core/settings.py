@@ -19,7 +19,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Security settings
 SECRET_KEY = Config.SECRET_KEY
 DEBUG = Config.DEBUG
-ALLOWED_HOSTS = Config.ALLOWED_HOSTS
 
 
 # Application definition
@@ -34,6 +33,35 @@ INSTALLED_APPS = [
     'rest_framework',  # Django REST Framework
     'corsheaders',     # CORS headers
     'shipments',       # Your shipments app
+]
+
+# CORS SETTINGS
+CORS_ALLOWED_ORIGINS = Config.CORS_ALLOWED_ORIGINS
+CORS_ALLOWED_HOSTS = Config.CORS_ALLOWED_HOSTS
+# Allow credentials (cookies, authorization headers)
+CORS_ALLOW_CREDENTIALS = True
+
+# Allow specific headers
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+# Allow specific methods
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
 ]
 
 MIDDLEWARE = [
