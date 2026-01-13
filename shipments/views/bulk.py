@@ -8,7 +8,7 @@ from ..serializers.bulk import (
     BulkUpdateServiceSerializer,
     BulkDeleteSerializer,
 )
-from ..services import (
+from ..services.bulk_ops import (
     update_ship_from,
     update_package,
     update_shipping_service,
@@ -18,25 +18,34 @@ from ..services import (
 
 class BulkUpdateShipFromView(APIView):
     def post(self, request):
-        ser = BulkUpdateShipFromSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        result = update_ship_from(ser.validated_data['shipment_ids'], ser.validated_data['address'])
+        serializer = BulkUpdateShipFromSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = update_ship_from(
+            serializer.validated_data['shipment_ids'],
+            serializer.validated_data['address']
+        )
         return Response(result)
 
 
 class BulkUpdatePackageView(APIView):
     def post(self, request):
-        ser = BulkUpdatePackageSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        result = update_package(ser.validated_data['shipment_ids'], ser.validated_data['package'])
+        serializer = BulkUpdatePackageSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = update_package(
+            serializer.validated_data['shipment_ids'],
+            serializer.validated_data['package']
+        )
         return Response(result)
 
 
 class BulkUpdateShippingServiceView(APIView):
     def post(self, request):
-        ser = BulkUpdateServiceSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        result = update_shipping_service(ser.validated_data['shipment_ids'], ser.validated_data['shipping_service'])
+        serializer = BulkUpdateServiceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = update_shipping_service(
+            serializer.validated_data['shipment_ids'],
+            serializer.validated_data['shipping_service']
+        )
         return Response(result)
 
 

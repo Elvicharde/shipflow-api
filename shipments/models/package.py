@@ -13,7 +13,7 @@ class Package(models.Model):
     - Dimensions in inches (length, width, height)
     - Weight as pounds + ounces (oz < 16)
     """
-    sku = models.CharField(max_length=64, blank=True, default='')
+    sku = models.CharField(max_length=64, null=True, blank=True, default=None)
 
     length_in = models.DecimalField(
         max_digits=6, decimal_places=2, null=True, blank=True,
@@ -28,9 +28,9 @@ class Package(models.Model):
         validators=[MinValueValidator(Decimal('0.00'))]
     )
 
-    weight_lbs = models.PositiveIntegerField(default=0)
+    weight_lbs = models.PositiveIntegerField(null=True, blank=True, default=None)
     weight_oz = models.PositiveIntegerField(
-        default=0,
+        null=True, blank=True, default=None,
         validators=[MaxValueValidator(15)]
     )
 
@@ -46,5 +46,4 @@ class Package(models.Model):
         return f'Package {self.sku or self.pk} — {self.total_weight_ounces()} oz'
 
     def total_weight_ounces(self) -> int:
-        """Return total weight in ounces (lbs * 16 + oz)."""
-        return int(self.weight_lbs) * 16 + int(self.weight_oz)
+        return (int(self.weight_lbs or 0) * 16) + int(self.weight_oz or 0)

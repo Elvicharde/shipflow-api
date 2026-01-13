@@ -3,13 +3,12 @@ from __future__ import annotations
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 from ..models import Shipment, UploadSession, SavedAddress, SavedPackage
-from ..serializers import (
-    ShipmentSerializer,
-    SavedAddressSerializer,
-    SavedPackageSerializer,
-)
+from ..serializers.shipment import ShipmentReadSerializer, ShipmentWriteSerializer
+from ..serializers.saved import SavedAddressSerializer, SavedPackageSerializer
+from ..serializers.upload_session import UploadSessionSerializer
 from ..serializers.bulk import (
     BulkUpdateServiceSerializer,
     BulkUpdateShipFromSerializer,
@@ -27,7 +26,6 @@ from ..services.session import upload_session_summary
 from ..services.upload import process_csv_upload
 from ..services.checkout import process_checkout
 
-
 class ShipmentViewSet(viewsets.ModelViewSet):
     """
     CRUD + bulk actions for shipments.
@@ -35,7 +33,10 @@ class ShipmentViewSet(viewsets.ModelViewSet):
     - list-level bulk actions under /shipments/bulk/...
     """
     queryset = Shipment.objects.select_related("ship_from", "ship_to", "package").all()
-    serializer_class = ShipmentSerializer
+    def get_serializer_class(self):
+        if self.action in ["create", "update", "partial_update"]:
+            return ShipmentWriteSerializer
+        return ShipmentReadSerializer
 
     @action(detail=True, methods=["post"], url_path="assign-service")
     def assign_service(self, request, pk=None):
@@ -90,20 +91,35 @@ class UploadSessionViewSet(viewsets.ReadOnlyModelViewSet):
     - checkout -> POST /uploads/{pk}/checkout/
     """
     queryset = UploadSession.objects.all()
+    serializer_class = UploadSessionSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     lookup_field = "pk"
 
     @action(detail=False, methods=["post"], url_path="upload")
     def upload(self, request):
-        upload = request.FILES.get("file") or request.data.get("file")
+        upload = request.FILES.get("file")
         if not upload:
-            return Response({"detail": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
-        summary = process_csv_upload(upload)
-        return Response(summary, status=status.HTTP_201_CREATED)
+            return Response(
+                {
+                    "error": "file is required",
+                    "detail": "Please send a file with key 'file' as multipart/form-data"
+                }, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            summary = process_csv_upload(upload)
+            return Response(summary, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to process CSV: {str(e)}"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
     @action(detail=True, methods=["get"], url_path="shipments")
     def shipments(self, request, pk=None):
         qs = Shipment.objects.filter(upload_session__id=pk).select_related("ship_from", "ship_to", "package").order_by("-created_at")
-        serializer = ShipmentSerializer(qs, many=True, context={"request": request})
+        serializer = ShipmentReadSerializer(qs, many=True, context={"request": request})
         return Response(serializer.data)
 
     @action(detail=True, methods=["get"], url_path="summary")

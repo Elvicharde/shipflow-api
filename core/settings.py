@@ -11,15 +11,15 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
-from decouple import config, Csv
+from .config import Config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Security settings
-SECRET_KEY = config('SECRET_KEY')
-DEBUG = config('DEBUG', default=False, cast=bool)
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost', cast=Csv())
+SECRET_KEY = Config.SECRET_KEY
+DEBUG = Config.DEBUG
+ALLOWED_HOSTS = Config.ALLOWED_HOSTS
 
 
 # Application definition
@@ -73,11 +73,11 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME'),
-        'USER': config('DB_USER'),
-        'PASSWORD': config('DB_PASSWORD'),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
+        'NAME': Config.DB_NAME,
+        'USER': Config.DB_USER,
+        'PASSWORD': Config.DB_PASSWORD,
+        'HOST': Config.DB_HOST,
+        'PORT': Config.DB_PORT,
     }
 }
 
@@ -156,15 +156,21 @@ ADDRESS_VERIFICATION_CHAIN = [
     },
 ]
 
-# Address Verification configuration (API keys, cache TTL, circuit breakers)
-from decouple import config
 ADDRESS_VERIFICATION = {
-    'USPS_USER_ID': config('USPS_USER_ID', default=''),
-    'GEOAPIFY_API_KEY': config('GEOAPIFY_API_KEY', default=''),
-    'HERE_API_KEY': config('HERE_API_KEY', default=''),
-    'MAPBOX_ACCESS_TOKEN': config('MAPBOX_ACCESS_TOKEN', default=''),
-    'GOOGLE_API_KEY': config('GOOGLE_API_KEY', default=''),
-    'CACHE_TTL': int(config('ADDRESS_VERIFICATION_CACHE_TTL', default=30 * 24 * 60 * 60)),  # 30 days
-    'CIRCUIT_BREAKER_THRESHOLD': int(config('ADDRESS_VERIFICATION_CIRCUIT_BREAKER_THRESHOLD', default=5)),
-    'CIRCUIT_BREAKER_TIMEOUT': int(config('ADDRESS_VERIFICATION_CIRCUIT_BREAKER_TIMEOUT', default=300)),
+    'USPS_USER_ID': Config.USPS_USER_ID,
+    'GEOAPIFY_API_KEY': Config.GEOAPIFY_API_KEY,
+    'HERE_API_KEY': Config.HERE_API_KEY,
+    'MAPBOX_ACCESS_TOKEN': Config.MAPBOX_ACCESS_TOKEN,
+    'GOOGLE_API_KEY': Config.GOOGLE_API_KEY,
+    'CACHE_TTL': Config.CACHE_TTL,
+    'CIRCUIT_BREAKER_THRESHOLD': Config.CIRCUIT_BREAKER_THRESHOLD,
+    'CIRCUIT_BREAKER_TIMEOUT': Config.CIRCUIT_BREAKER_TIMEOUT,
 }
+
+
+# FILE SETTINGS
+FILE_UPLOAD_MAX_MEMORY_SIZE = Config.FILE_UPLOAD_MAX_MEMORY_SIZE 
+DATA_UPLOAD_MAX_MEMORY_SIZE = Config.DATA_UPLOAD_MAX_MEMORY_SIZE 
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'

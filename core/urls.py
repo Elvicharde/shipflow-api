@@ -16,8 +16,37 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.http import JsonResponse
+from django.db import connection
+
+def health_check(request):
+    try:
+        # Check database connection
+        connection.ensure_connection()
+        db_status = 'healthy'
+    except Exception as e:
+        db_status = f'unhealthy: {str(e)}'
+    
+    return JsonResponse({
+        'status': 'ok',
+        'database': db_status,
+    })
+
+def api_root(request):
+    return JsonResponse({
+        'message': 'Shipments API Backend',
+        'version': '1.0',
+        'endpoints': {
+            'admin': '/admin/',
+            'api': '/api/shipments/',
+            'health': '/health/',
+        }
+    })
 
 urlpatterns = [
+    path('', api_root, name='api-root'),
+    path('health/', health_check, name='health-check'),
     path('admin/', admin.site.urls),
-    path('api/shipments/', include('shipments.urls')),  # Mounting shipment-related APIs
-]
+    path('api/shipments/', include('shipments.urls')),    # Mounting shipment-related APIs
+]  
+

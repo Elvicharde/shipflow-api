@@ -4,96 +4,131 @@ from typing import Any, Dict, List
 
 from django.db import transaction
 
-from ..models.upload_session import UploadSession
+from ..models.upload_session import UploadSession, UploadSessionStatus
+from ..models.shipment import Shipment, ShipmentStatus, ValidationStatus, PricingStatus
+from ..models.address import Address
+from ..models.package import Package
+from .validation import validate_row
 from .csv_parser import parse_csv
-from ..serializers import ShipmentSerializer
 
 
 def process_csv_upload(file_like) -> Dict[str, Any]:
     """
-    Create an UploadSession, parse the uploaded CSV, persist valid shipments,
-    and return a summary:
-      {
-        'upload_session_id': str(UUID),
-        'total_rows': int,
-        'created': int,
-        'invalid': int,
-        'errors': [{'row': int, 'errors': {...}}, ...]
-      }
+    Parse CSV, validate each row, assign validation status, and persist results.
+    Upload phase rules (Shipflow lifecycle):
+      - Do NOT price shipments during upload
+      - Do NOT require / enforce shipping_service during upload
+      - Create Shipment records for BOTH valid and invalid rows
+      - Since the Shipment model requires FK fields (ship_from, ship_to, package),
+        we must create the related Address and Package records at upload time.
+      - Store validation errors on the Shipment; pricing is deferred.
 
-    - Accepts file-like or Django UploadedFile; decodes bytes if needed.
-    - Uses parse_csv for mapping and initial validation ([shipments.services.csv_parser.parse_csv]).
-    - Uses ShipmentSerializer to persist nested Address/Package/Shipment objects.
+    Returns a summary payload for the frontend wizard with the original shape.
     """
-    # Normalize uploaded file to text file-like for parser
-    if hasattr(file_like, 'read'):
+    # Normalize input into a text-mode file-like object
+    if hasattr(file_like, "read"):
         content = file_like.read()
         if isinstance(content, (bytes, bytearray)):
-            content = content.decode('utf-8')
+            content = content.decode("utf-8")
         file_obj = StringIO(content)
     else:
         file_obj = file_like
 
-    session = UploadSession.objects.create()
+    # Create a new upload session
+    session = UploadSession.objects.create(status=UploadSessionStatus.UPLOADED)
 
+    # Parse rows from CSV (parse_csv is expected to skip fully empty rows already)
     rows = parse_csv(file_obj)
     total = len(rows)
-    created = 0
+
+    created = 0   # number of VALID rows
+    invalid = 0   # number of INVALID rows
     errors: List[Dict[str, Any]] = []
+    results: List[Dict[str, Any]] = []
 
-    for row in rows:
-        row_idx = row.get('row')
-        parse_errors = row.get('errors') or {}
-        # If parse step reported any nested errors, skip persistence
-        if any(parse_errors.get(k) for k in ('ship_from', 'ship_to', 'package')):
-            errors.append({'row': row_idx, 'errors': parse_errors})
+    for idx, row in enumerate(rows, start=1):
+        # Double-guard: skip fully empty rows (in case parse_csv didn't)
+        if not any(row.values()):
             continue
 
-        payload = dict(row['data'])
-        payload['upload_session'] = session.pk
+        # Validate the row using provided validator; collect grouped field errors
+        valid, field_errors = validate_row(row)
+        validation_status = ValidationStatus.VALID if valid else ValidationStatus.INVALID
 
-        # Run address verification for ship_from and ship_to (non-blocking)
-        try:
-            from .address_verification import AddressVerificationService
-            avs = AddressVerificationService()
-            for addr_key in ('ship_from', 'ship_to'):
-                addr_data = payload.get(addr_key, {})
-                try:
-                    result = avs.verify_address(addr_data, country_code=None)
-                except Exception as e:
-                    result = {'ok': False, 'error': str(e)}
-                if result.get('ok'):
-                    addr_data['is_verified'] = True
-                    addr_data['verification_provider'] = result.get('provider')
-                    # datetime to ISO string
-                    if result.get('verified_at'):
-                        addr_data['verified_at'] = result.get('verified_at').isoformat()
-                    addr_data['verification_metadata'] = result.get('metadata') or {}
-                else:
-                    addr_data['is_verified'] = False
-                    addr_data.setdefault('verification_metadata', {})
-                payload[addr_key] = addr_data
-        except ImportError:
-            # verification service not available; continue without verifying
-            pass
+        # Upload phase: pricing deferred
+        price = None
+        currency = "USD"  # keep payload shape consistent
 
-        serializer = ShipmentSerializer(data=payload)
-        if not serializer.is_valid():
-            errors.append({'row': row_idx, 'errors': serializer.errors})
-            continue
-
-        # Persist nested objects/shipment in a per-row transaction
+        # Attempt to persist this row independently so one failure doesn't abort the batch
         try:
             with transaction.atomic():
-                serializer.save()
-            created += 1
-        except Exception as exc:  # pragma: no cover - defensive
-            errors.append({'row': row_idx, 'errors': {'exception': [str(exc)]}})
+                # Build related objects required by the Shipment model (FKs are mandatory)
+                ship_from_obj = Address.objects.create(**(row.get('data').get("ship_from") or {}))
+                ship_to_obj = Address.objects.create(**(row.get('data').get("ship_to") or {}))
+                package_obj = Package.objects.create(**(row.get('data').get("package") or {}))
 
+                shipment = Shipment.objects.create(
+                    upload_session=session,
+                    ship_from=ship_from_obj,
+                    ship_to=ship_to_obj,
+                    package=package_obj,
+                    # shipping_service is optional at upload; store if present, else None
+                    shipping_service=row.get("shipping_service"),
+                    price_cents=None,  # not computed during upload
+                    status=ShipmentStatus.CREATED,
+                    validation_status=validation_status,
+                    validation_errors=field_errors or {},
+                    pricing_status=PricingStatus.UNPRICED,
+                )
+
+            # Tally counts & per-row result
+            if validation_status == ValidationStatus.VALID:
+                created += 1
+            else:
+                invalid += 1
+                errors.append({"row": idx, "errors": field_errors or {}})
+
+            results.append({
+                "row": idx,
+                "shipment_id": shipment.id,
+                "status": validation_status,
+                "errors": field_errors or {},
+                "price": price,
+                "currency": currency,
+            })
+
+        except Exception as exc:
+            # If we cannot persist this particular row (e.g., model constraints), record the error
+            invalid += 1
+            persist_errors = {"persist": [str(exc)]}
+            errors.append({"row": idx, "errors": persist_errors})
+            results.append({
+                "row": idx,
+                "shipment_id": None,
+                "status": ValidationStatus.INVALID,
+                "errors": persist_errors,
+                "price": None,
+                "currency": currency,
+            })
+
+    # Update session aggregates & status
+    session.rows_total = total
+    session.rows_valid = created
+    session.rows_invalid = invalid
+    # Session status: all valid -> VALIDATED; any invalid -> PARTIAL_VALID
+    session.status = (
+        UploadSessionStatus.VALIDATED if created > 0 and invalid == 0 
+        else UploadSessionStatus.PARTIAL_VALID if created > 0 and invalid > 0 
+        else UploadSessionStatus.INVALID
+    )
+    session.save()
+
+    # Return summary payload (unchanged contract)
     return {
-        'upload_session_id': str(session.id),
-        'total_rows': total,
-        'created': created,
-        'invalid': len(errors),
-        'errors': errors,
+        "upload_session_id": str(session.id),
+        "total_rows": total,
+        "created": created,
+        "invalid": invalid,
+        "results": results,
+        "errors": errors,
     }

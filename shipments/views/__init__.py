@@ -1,4 +1,8 @@
 from .upload import UploadCSVView
-from .review import ShipmentReviewView
-from .shipping import ShippingSelectionView
+from .review import (
+    ShipmentListView,
+    ShipmentDetailView,
+    ShipmentAssignServiceView,
+    UploadSessionSummaryView,
+)
 from .checkout import CheckoutView
