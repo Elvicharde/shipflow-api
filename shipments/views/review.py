@@ -1,5 +1,12 @@
 from __future__ import annotations
+from core.logger import get_logger
 from typing import Dict
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from ..services.shipment_update import update_shipment
+
 
 from django.db.models import Sum, Count, Q
 from rest_framework import generics
@@ -9,10 +16,12 @@ from rest_framework import status
 
 from ..services.bulk_ops import assign_shipping_service
 from ..services.session import upload_session_summary
-from ..serializers import ShipmentSerializer
+from ..serializers.shipment import ShipmentReadSerializer
 
 from ..models import Shipment
 
+
+logger = get_logger()
 
 def upload_session_summary(upload_session_id) -> Dict[str, int]:
     """
@@ -42,7 +51,7 @@ class ShipmentListView(generics.ListAPIView):
     List shipments for a given UploadSession.
     Supports simple `?q=` search against ship_from.name, ship_to.name, order_number, and shipping_service.
     """
-    serializer_class = ShipmentSerializer
+    serializer_class = ShipmentReadSerializer
 
     def get_queryset(self):
         upload_session_id = self.kwargs.get("upload_session_id")
@@ -66,7 +75,7 @@ class ShipmentDetailView(generics.RetrieveUpdateAPIView):
     Nested partial updates are supported (see [`shipments.serializers.shipment.ShipmentSerializer`](shipments/serializers/shipment.py)).
     """
     queryset = Shipment.objects.select_related("ship_from", "ship_to", "package").all()
-    serializer_class = ShipmentSerializer
+    serializer_class = ShipmentReadSerializer
 
     def patch(self, request, *args, **kwargs):
         # allow PATCH to behave as partial_update
@@ -80,23 +89,44 @@ class ShipmentAssignServiceView(APIView):
     Returns updated Shipment data and the upload session running total.
     """
     def post(self, request, pk):
-        service = request.data.get('shipping_service')
-        if not service:
-            return Response({'detail': 'shipping_service is required'}, status=status.HTTP_400_BAD_REQUEST)
+        from ..serializers.bulk import BulkUpdateServiceSerializer
+        serializer = BulkUpdateServiceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         try:
-            result = assign_shipping_service(pk, service)
+            result = assign_shipping_service(int(pk), serializer.validated_data["shipping_service"])
         except ValueError as exc:
-            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-
-        shipment = Shipment.objects.select_related('upload_session', 'ship_from', 'ship_to', 'package').get(pk=pk)
-        serializer = ShipmentSerializer(shipment, context={'request': request})
+            logger.warning(
+                "Assign service failed: shipment not found or invalid",
+                extra={
+                    "operation": "assign_shipping_service",
+                    "entity": "shipment",
+                    "status": "failure",
+                    "shipment_id": pk,
+                    "error_message": str(exc),
+                    "request_id": request.headers.get('X-Request-Id'),
+                    "user_id": getattr(request.user, 'id', None) if hasattr(request, 'user') else None,
+                },
+            )
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        shipment = Shipment.objects.select_related("upload_session", "ship_from", "ship_to", "package").get(pk=pk)
+        shipment_serializer = ShipmentReadSerializer(shipment, context={"request": request})
         summary = upload_session_summary(shipment.upload_session.id)
-        payload = {
-            'shipment': serializer.data,
-            'assign_result': result,
-            'upload_session_summary': summary,
-        }
-        return Response(payload, status=status.HTTP_200_OK)
+        logger.info(
+            "Assign service completed",
+            extra={
+                "operation": "assign_shipping_service",
+                "entity": "shipment",
+                "status": "success",
+                "shipment_id": pk,
+                "request_id": request.headers.get('X-Request-Id'),
+                "user_id": getattr(request.user, 'id', None) if hasattr(request, 'user') else None,
+            },
+        )
+        return Response({
+            "shipment": shipment_serializer.data,
+            "assign_result": result,
+            "upload_session_summary": summary
+        }, status=status.HTTP_200_OK)
 
 
 class UploadSessionSummaryView(APIView):
@@ -107,3 +137,12 @@ class UploadSessionSummaryView(APIView):
     def get(self, request, upload_session_id):
         summary = upload_session_summary(upload_session_id)
         return Response(summary, status=status.HTTP_200_OK)
+    
+from rest_framework.permissions import IsAuthenticated
+
+class ShipmentEditView(APIView):
+    authentication_classes = []
+    permission_classes = [IsAuthenticated]
+    def patch(self, request, shipment_id):
+        result = update_shipment(shipment_id, request.data)
+        return Response(result, status=status.HTTP_200_OK)

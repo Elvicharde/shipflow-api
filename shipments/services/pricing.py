@@ -1,13 +1,13 @@
 from __future__ import annotations
-from typing import Dict
+from typing import Dict, Any, Tuple
 
 from ..models import Package
 
 
 # Deterministic price table (cents)
 PRICE_TABLE: Dict[str, Dict[str, int]] = {
-    'priority': {'label': 'Priority', 'base_cents': 500, 'per_ounce_cents': 10},
-    'ground': {'label': 'Ground', 'base_cents': 300, 'per_ounce_cents': 5},
+    'priority': {'base_cents': 500, 'per_ounce_cents': 10},
+    'ground': {'base_cents': 300, 'per_ounce_cents': 5},
 }
 
 
@@ -29,16 +29,27 @@ def get_service_config(service: str) -> Dict[str, int]:
         raise ValueError(f"Unknown shipping service: {service}")
 
 
-def calculate_price_cents(service: str, weight_ounces: int) -> int:
+def calculate_price(service: str, weight: int, dimensions: Dict[str, Any]) -> Tuple[int, str]:
     """
-    Calculate price in cents for a given service and weight in ounces.
+    Calculate price for a shipment.
+    - service: must be provided and valid
+    - weight: in ounces
+    - dimensions: dict with length, width, height
+    Returns (price_cents, currency)
+    """
+    if not service:
+        raise ValueError("Shipping service must be provided")
+    if weight is None or weight <= 0:
+        raise ValueError("Weight must be greater than zero")
+    if not all(dimensions.values()):
+        raise ValueError("All package dimensions must be provided")
 
-    Price formula: total_cents = base_cents + per_ounce_cents * weight_ounces
-    """
-    if weight_ounces is None or int(weight_ounces) < 0:
-        raise ValueError("weight_ounces must be a non-negative integer")
-    cfg = get_service_config(service)
-    return int(cfg['base_cents']) + int(cfg['per_ounce_cents']) * int(weight_ounces)
+    config = PRICE_TABLE.get(service.lower())
+    if not config:
+        raise ValueError(f"Unknown shipping service: {service}")
+
+    price = config['base_cents'] + config['per_ounce_cents'] * int(weight)
+    return price, 'USD'
 
 
 def calculate_price_for_package(service: str, package: Package) -> int:
@@ -48,4 +59,14 @@ def calculate_price_for_package(service: str, package: Package) -> int:
     """
     if not isinstance(package, Package):
         raise TypeError("package must be a Package instance")
-    return calculate_price_cents(service, package.total_weight_ounces())
+    dimensions = {
+        'length': getattr(package, 'length_in', None),
+        'width': getattr(package, 'width_in', None),
+        'height': getattr(package, 'height_in', None),
+    }
+    price_cents, _currency = calculate_price(
+        service,
+        package.total_weight_ounces(),
+        dimensions
+    )
+    return price_cents

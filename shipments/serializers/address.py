@@ -20,6 +20,10 @@ class AddressSerializer(serializers.ModelSerializer):
             'state',
             'postal_code',
             'phone',
+            'is_verified',
+            'verification_provider',
+            'verified_at',
+            'verification_metadata',
             'created_at',
             'updated_at',
         ]

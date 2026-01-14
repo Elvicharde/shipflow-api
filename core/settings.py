@@ -1,3 +1,10 @@
+from decouple import config, Csv
+# Django REST Framework authentication
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'shipments.authentication.TokenAuthentication',
+    ],
+}
 """
 Django settings for config project.
 
@@ -11,18 +18,18 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
-from decouple import config, Csv
+from .config import Config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Security settings
-SECRET_KEY = config('SECRET_KEY')
+# SECRET_KEY = config('DJANGO_SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost', cast=Csv())
 
 
 # Application definition
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost', cast=Csv())
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -36,6 +43,37 @@ INSTALLED_APPS = [
     'shipments',       # Your shipments app
 ]
 
+AUTH_USER_MODEL = 'shipments.User'
+
+# CORS SETTINGS
+CORS_ALLOWED_ORIGINS = Config.CORS_ALLOWED_ORIGINS
+CORS_ALLOWED_HOSTS = Config.CORS_ALLOWED_HOSTS
+# Allow credentials (cookies, authorization headers)
+CORS_ALLOW_CREDENTIALS = True
+
+# Allow specific headers
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+# Allow specific methods
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',  # CORS middleware
     'django.middleware.security.SecurityMiddleware',
@@ -45,6 +83,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware'
 ]
 
 ROOT_URLCONF = 'core.urls'
@@ -73,11 +112,11 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DATABASE_URL').split('/')[-1],
-        'USER': config('DATABASE_URL').split(':')[1].split('//')[1],
-        'PASSWORD': config('DATABASE_URL').split(':')[2].split('@')[0],
-        'HOST': config('DATABASE_URL').split('@')[1].split(':')[0],
-        'PORT': config('DATABASE_URL').split(':')[-1],
+        'NAME': Config.DB_NAME,
+        'USER': Config.DB_USER,
+        'PASSWORD': Config.DB_PASSWORD,
+        'HOST': Config.DB_HOST,
+        'PORT': Config.DB_PORT,
     }
 }
 
@@ -116,8 +155,62 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Security settings
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
+
+
+ADDRESS_VERIFICATION_CHAIN = [
+    {
+        'name': 'usps',
+        'enabled': True,
+        'countries': ['US'],
+        'daily_limit': None,  # No hard limit
+    },
+    {
+        'name': 'geoapify',
+        'enabled': True,
+        'countries': ['*'],  # Global
+        'daily_limit': 3000,
+    },
+    {
+        'name': 'here',
+        'enabled': True,
+        'countries': ['*'],
+        'daily_limit': 1000,
+    },
+    {
+        'name': 'mapbox',
+        'enabled': True,
+        'countries': ['*'],
+        'monthly_limit': 100000,
+    },
+    {
+        'name': 'google',
+        'enabled': False,  # Enable when ready to pay
+        'countries': ['*'],
+        'cost_per_1000': 5.00,
+    },
+]
+
+ADDRESS_VERIFICATION = {
+    'USPS_USER_ID': Config.USPS_USER_ID,
+    'GEOAPIFY_API_KEY': Config.GEOAPIFY_API_KEY,
+    'HERE_API_KEY': Config.HERE_API_KEY,
+    'MAPBOX_ACCESS_TOKEN': Config.MAPBOX_ACCESS_TOKEN,
+    'GOOGLE_API_KEY': Config.GOOGLE_API_KEY,
+    'CACHE_TTL': Config.CACHE_TTL,
+    'CIRCUIT_BREAKER_THRESHOLD': Config.CIRCUIT_BREAKER_THRESHOLD,
+    'CIRCUIT_BREAKER_TIMEOUT': Config.CIRCUIT_BREAKER_TIMEOUT,
+}
+
+
+# FILE SETTINGS
+FILE_UPLOAD_MAX_MEMORY_SIZE = Config.FILE_UPLOAD_MAX_MEMORY_SIZE 
+DATA_UPLOAD_MAX_MEMORY_SIZE = Config.DATA_UPLOAD_MAX_MEMORY_SIZE 
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'

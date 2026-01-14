@@ -10,9 +10,24 @@ from .package import Package
 class ShipmentStatus(models.TextChoices):
     CREATED = 'created', 'Created'
     VALIDATED = 'validated', 'Validated'
-    SHIPPING_SELECTED = 'shipping_selected', 'Shipping Selected'
+    PARTIAL_VALID = 'partial_valid', 'Partial Valid'
+    INVALID = 'invalid', 'Invalid'
+    READY_FOR_PURCHASE = 'ready_for_purchase', 'Ready for Purchase'
     PURCHASED = 'purchased', 'Purchased'
     CANCELLED = 'cancelled', 'Cancelled'
+
+
+class ValidationStatus(models.TextChoices):
+    VALID = 'valid', 'Valid'
+    PARTIAL = 'partial', 'Partial'
+    INVALID = 'invalid', 'Invalid'
+    BLANK = 'blank', 'Blank'
+
+
+class PricingStatus(models.TextChoices):
+    PRICED = 'priced', 'Priced'
+    UNPRICED = 'unpriced', 'Unpriced'
+    ERROR = 'error', 'Error'
 
 
 class Shipment(models.Model):
@@ -23,6 +38,7 @@ class Shipment(models.Model):
     upload_session = models.ForeignKey(
         UploadSession, on_delete=models.CASCADE, related_name='shipments'
     )
+    row_number = models.PositiveIntegerField(null=True, blank=True, help_text="CSV row number for upload tracking")
     ship_from = models.ForeignKey(
         Address, on_delete=models.PROTECT, related_name='shipments_from'
     )
@@ -33,15 +49,34 @@ class Shipment(models.Model):
         Package, on_delete=models.PROTECT, related_name='shipments'
     )
 
-    shipping_service = models.CharField(max_length=128, blank=True, default='')
-    price_cents = models.PositiveIntegerField(null=True, blank=True)
-    order_number = models.CharField(max_length=128, blank=True, default='')
+    shipping_service = models.CharField(max_length=128, null=True, blank=True, default=None)
+    shipping_option = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Shipping option: 'ground' or 'priority'"
+    )
+    price_cents = models.PositiveIntegerField(null=True, blank=True, default=None)
+    order_number = models.CharField(max_length=128, null=True, blank=True, default=None)
 
     status = models.CharField(
         max_length=32,
         choices=ShipmentStatus.choices,
         default=ShipmentStatus.CREATED,
     )
+    validation_status = models.CharField(
+        max_length=16,
+        choices=ValidationStatus.choices,
+        default=ValidationStatus.INVALID,
+    )
+    validation_errors = models.JSONField(null=True, blank=True, default=dict)
+    pricing_status = models.CharField(
+        max_length=16,
+        choices=PricingStatus.choices,
+        default=PricingStatus.UNPRICED,
+    )
+    locked = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -1,8 +1,62 @@
 from __future__ import annotations
 from typing import Any, Dict, Tuple, Union
 
+
 from ..models import Address, Package, Shipment
 from ..serializers import AddressSerializer, PackageSerializer
+from core.logger import get_logger
+
+logger = get_logger()
+
+
+def validate_row(row: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Validate sender, recipient, and package fields.
+    Returns (is_valid, errors)
+    """
+    errors = {}
+    request_id = None
+    user_id = None
+    operation = "row_validation"
+    entity = "csv_row"
+    row_number = row.get("row")
+
+    # Sender address
+    sender = row.get("data").get('ship_from', {})
+    sender_required = ['name', 'address_line1', 'city', "postal_code"]
+    for field in sender_required:
+        if not sender.get(field):
+            errors.setdefault('ship_from', {})[field] = 'This field is required.'
+
+    # Recipient address
+    recipient = row.get("data").get('ship_to', {})
+    recipient_required = ['name', 'address_line1', 'city', "postal_code", 'phone']
+    for field in recipient_required:
+        if not recipient.get(field):
+            errors.setdefault('ship_to', {})[field] = 'This field is required.'
+
+    # Package
+    package = row.get("data").get('package', {})
+    package_required = ['length_in', 'width_in', 'height_in', 'weight_lbs', 'weight_oz']
+    for field in package_required:
+        if not package.get(field):
+            errors.setdefault('package', {})[field] = 'This field is required.'
+
+    is_valid = not errors
+    logger.info(
+        "Row validation complete",
+        extra={
+            "operation": operation,
+            "entity": entity,
+            "row_number": row_number,
+            "status": "success" if is_valid else "failure",
+            "failed_fields": list(errors.keys()) if errors else None,
+            "request_id": request_id,
+            "user_id": user_id,
+        },
+    )
+    return is_valid, errors
+
 
 
 def address_validation(
