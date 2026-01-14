@@ -45,9 +45,11 @@ INSTALLED_APPS = [
 
 AUTH_USER_MODEL = 'shipments.User'
 
+ALLOWED_HOSTS = ['*']
+
 # CORS SETTINGS
 CORS_ALLOWED_ORIGINS = Config.CORS_ALLOWED_ORIGINS
-CORS_ALLOWED_HOSTS = Config.CORS_ALLOWED_HOSTS
+CORS_ALLOWED_HOSTS = ['*']
 # Allow credentials (cookies, authorization headers)
 CORS_ALLOW_CREDENTIALS = True
 
