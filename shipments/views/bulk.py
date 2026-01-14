@@ -21,8 +21,11 @@ from shipments.serializers.bulk_update_service_option import BulkUpdateServiceAn
 from shipments.services.bulk_ops import bulk_update_shipping_service_and_option
 
 from shipments.serializers.shipment import ShipmentReadSerializer
+from rest_framework.permissions import IsAuthenticated
 
 class BulkUpdateShippingServiceAndOptionView(APIView):
+    authentication_classes = []
+    permission_classes = [IsAuthenticated]
     def post(self, request):
         serializer = BulkUpdateServiceAndOptionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

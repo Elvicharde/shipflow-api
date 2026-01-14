@@ -1,3 +1,9 @@
+# Django REST Framework authentication
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'shipments.authentication.TokenAuthentication',
+    ],
+}
 """
 Django settings for config project.
 
@@ -34,6 +40,8 @@ INSTALLED_APPS = [
     'corsheaders',     # CORS headers
     'shipments',       # Your shipments app
 ]
+
+AUTH_USER_MODEL = 'shipments.User'
 
 # CORS SETTINGS
 CORS_ALLOWED_ORIGINS = Config.CORS_ALLOWED_ORIGINS

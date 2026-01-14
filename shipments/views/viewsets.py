@@ -1,4 +1,5 @@
 from __future__ import annotations
+from rest_framework.permissions import IsAuthenticated
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -27,6 +28,7 @@ from ..services.upload import process_csv_upload
 from ..services.checkout import process_checkout
 
 class ShipmentViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     """
     CRUD + bulk actions for shipments.
     - detail action `assign-service` -> POST /shipments/{pk}/assign-service/
@@ -143,6 +145,7 @@ class ShipmentViewSet(viewsets.ModelViewSet):
 
 
 class UploadSessionViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = [IsAuthenticated]
     """
     Read-only UploadSession endpoints plus:
     - upload (create via CSV) -> POST /uploads/upload/
@@ -163,16 +166,15 @@ class UploadSessionViewSet(viewsets.ReadOnlyModelViewSet):
                 {
                     "error": "file is required",
                     "detail": "Please send a file with key 'file' as multipart/form-data"
-                }, 
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
         try:
             summary = process_csv_upload(upload)
             return Response(summary, status=status.HTTP_201_CREATED)
         except Exception as e:
             return Response(
-                {"error": f"Failed to process CSV: {str(e)}"}, 
+                {"error": f"Failed to process CSV: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -200,6 +202,7 @@ class UploadSessionViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class SavedAddressViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     queryset = SavedAddress.objects.select_related("address").all()
     serializer_class = SavedAddressSerializer
 
@@ -239,5 +242,6 @@ class SavedAddressViewSet(viewsets.ModelViewSet):
 
 
 class SavedPackageViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     queryset = SavedPackage.objects.select_related("package").all()
     serializer_class = SavedPackageSerializer

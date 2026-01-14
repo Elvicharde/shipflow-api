@@ -4,8 +4,9 @@ from shipments.views.bulk import BulkUpdateShippingServiceAndOptionView
     
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-
+from .views.auth import RegisterView, LoginView
 from .views.viewsets import (
+    
     ShipmentViewSet,
     UploadSessionViewSet,
     SavedAddressViewSet,
@@ -23,6 +24,8 @@ router.register(r'saved-addresses', SavedAddressViewSet, basename='savedaddress'
 router.register(r'saved-packages', SavedPackageViewSet, basename='savedpackage')
 
 urlpatterns = [
+    path('auth/register/', RegisterView.as_view(), name='auth-register'),
+    path('auth/login/', LoginView.as_view(), name='auth-login'),
     # Bulk update shipping service/option (must be before router include)
     path('shipments/bulk-update-service-option/', BulkUpdateShippingServiceAndOptionView.as_view(), name='shipments-bulk-update-service-option'),
 

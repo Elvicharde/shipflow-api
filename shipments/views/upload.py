@@ -15,8 +15,11 @@ from shipments.models.shipment import Shipment
 ## Removed local format_address and format_package; now imported from services.upload
 
 
+from rest_framework.permissions import IsAuthenticated
 
 class UploadCSVView(APIView):
+    authentication_classes = []
+    permission_classes = [IsAuthenticated]
     """
     POST /api/shipments/upload/
     Expects multipart form with 'file' key (CSV). Returns upload summary.

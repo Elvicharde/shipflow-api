@@ -138,8 +138,11 @@ class UploadSessionSummaryView(APIView):
         summary = upload_session_summary(upload_session_id)
         return Response(summary, status=status.HTTP_200_OK)
     
+from rest_framework.permissions import IsAuthenticated
 
 class ShipmentEditView(APIView):
+    authentication_classes = []
+    permission_classes = [IsAuthenticated]
     def patch(self, request, shipment_id):
         result = update_shipment(shipment_id, request.data)
         return Response(result, status=status.HTTP_200_OK)
