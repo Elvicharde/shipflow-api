@@ -55,5 +55,26 @@ class ShipmentWriteSerializer(serializers.ModelSerializer):
             'order_number',
         ]
 
-    # Only shape/structure validation. No business logic or nested creation.
-    pass
+    def update(self, instance, validated_data):
+        # Handle nested updates for ship_from, ship_to, package
+        address_fields = ['ship_from', 'ship_to']
+        for field in address_fields:
+            nested_data = validated_data.pop(field, None)
+            if nested_data:
+                address_instance = getattr(instance, field)
+                for attr, value in nested_data.items():
+                    setattr(address_instance, attr, value)
+                address_instance.save()
+
+        package_data = validated_data.pop('package', None)
+        if package_data:
+            package_instance = instance.package
+            for attr, value in package_data.items():
+                setattr(package_instance, attr, value)
+            package_instance.save()
+
+        # Update shipment fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
