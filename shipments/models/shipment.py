@@ -50,6 +50,13 @@ class Shipment(models.Model):
     )
 
     shipping_service = models.CharField(max_length=128, null=True, blank=True, default=None)
+    shipping_option = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Shipping option: 'ground' or 'priority'"
+    )
     price_cents = models.PositiveIntegerField(null=True, blank=True, default=None)
     order_number = models.CharField(max_length=128, null=True, blank=True, default=None)
 

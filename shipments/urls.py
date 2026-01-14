@@ -1,3 +1,7 @@
+# Bulk update shipping service/option endpoint
+from shipments.views.bulk import BulkUpdateShippingServiceAndOptionView
+    # Bulk update shipping service/option
+    
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
@@ -19,6 +23,9 @@ router.register(r'saved-addresses', SavedAddressViewSet, basename='savedaddress'
 router.register(r'saved-packages', SavedPackageViewSet, basename='savedpackage')
 
 urlpatterns = [
+    # Bulk update shipping service/option (must be before router include)
+    path('shipments/bulk-update-service-option/', BulkUpdateShippingServiceAndOptionView.as_view(), name='shipments-bulk-update-service-option'),
+
     # router-backed resource endpoints
     path('', include(router.urls)),
     # path('uploads', UploadCSVView.as_view(), name='upload-csv'),

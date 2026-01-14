@@ -22,6 +22,7 @@ class ShipmentReadSerializer(serializers.ModelSerializer):
             'ship_to',
             'package',
             'shipping_service',
+            'shipping_option',
             'price_cents',
             'order_number',
             'status',

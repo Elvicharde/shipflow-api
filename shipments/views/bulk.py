@@ -14,6 +14,26 @@ from ..services.bulk_ops import (
     update_shipping_service,
     delete_shipments,
 )
+from shipments.serializers.bulk_update_service_option import BulkUpdateServiceAndOptionSerializer
+from shipments.services.bulk_ops import bulk_update_shipping_service_and_option
+
+from shipments.serializers.shipment import ShipmentReadSerializer
+
+class BulkUpdateShippingServiceAndOptionView(APIView):
+    def post(self, request):
+        serializer = BulkUpdateServiceAndOptionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        session_id = serializer.validated_data['upload_session_id']
+        shipment_updates = serializer.validated_data['shipments']
+        from shipments.models import UploadSession
+        try:
+            session = UploadSession.objects.get(pk=session_id)
+        except UploadSession.DoesNotExist:
+            return Response({'detail': 'Session not found'}, status=404)
+        updated = bulk_update_shipping_service_and_option(session, shipment_updates)
+        
+        return Response(ShipmentReadSerializer(updated, many=True).data)
+
 
 
 class BulkUpdateShipFromView(APIView):

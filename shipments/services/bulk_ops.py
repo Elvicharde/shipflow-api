@@ -6,6 +6,39 @@ from django.db import transaction
 from ..models import Shipment
 from ..serializers import AddressSerializer, PackageSerializer
 from .pricing import calculate_price_for_package
+from django.db import transaction
+from shipments.models import Shipment
+
+# Backend price logic matching frontend Step4Review.simulateCost
+def calculate_step4review_price(service: str, option: str) -> float:
+    base = 8 if option == 'priority' else 5
+    if service in ('UPS', 'FedEx'):
+        base += 2
+    elif service == 'DHL':
+        base += 1
+    return float(base)
+
+# Bulk update shipping service and option for multiple shipments
+@transaction.atomic
+def bulk_update_shipping_service_and_option(session, shipment_updates):
+    """
+    shipment_updates: list of dicts with keys: shipment_id, shipping_service, shipping_option
+    Update each shipment individually using assign_shipping_service.
+    """
+    if not shipment_updates:
+        return []
+    updated = []
+    for upd in shipment_updates:
+        shipment = Shipment.objects.get(pk=upd['shipment_id'], upload_session=session)
+        from shipments.services.shipment_update import assign_shipping_service_option
+        assign_shipping_service_option(shipment, upd['shipping_service'], upd.get('shipping_option'))
+        # Calculate and set price_cents using backend logic
+        price = calculate_step4review_price(upd['shipping_service'], upd.get('shipping_option', 'priority'))
+        shipment.price_cents = int(price * 100)
+        shipment.save()
+        updated.append(shipment)
+    return updated
+
 
 
 def _fetch_shipments(ids: List[int]) -> List[Shipment]:
