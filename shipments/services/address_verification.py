@@ -1,6 +1,6 @@
 from __future__ import annotations
 import hashlib
-import logging
+from core.logger import get_logger
 from datetime import datetime
 from importlib import import_module
 from typing import Any, Dict, Optional
@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 from django.conf import settings
 from django.core.cache import cache
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 CACHE_TTL = getattr(settings, 'ADDRESS_VERIFICATION', {}).get('CACHE_TTL', 30 * 24 * 60 * 60)
 CIRCUIT_THRESHOLD = getattr(settings, 'ADDRESS_VERIFICATION', {}).get('CIRCUIT_BREAKER_THRESHOLD', 5)
@@ -79,14 +79,29 @@ class AddressVerificationService:
         }
         """
 
+
+        request_id = None
+        user_id = None
+        operation = "address_verification"
+        entity = "address"
         norm = _normalize_address_key(address, country_code)
         cached = self._get_cached(norm)
         if cached:
-            logger.debug('Address verification cache hit')
+            logger.info(
+                "Address verification cache hit",
+                extra={
+                    "operation": operation,
+                    "entity": entity,
+                    "status": "cache_hit",
+                    "request_id": request_id,
+                    "user_id": user_id,
+                },
+            )
             return cached
 
         errors = []
 
+        import time
         for entry in self.chain:
             name = entry.get('name')
             if not entry.get('enabled'):
@@ -97,38 +112,88 @@ class AddressVerificationService:
                 continue
 
             if self._circuit_open(name):
-                logger.info('Skipping provider %s because circuit is open', name)
+                logger.warning(
+                    "Provider circuit open, skipping",
+                    extra={
+                        "operation": operation,
+                        "entity": entity,
+                        "provider": name,
+                        "status": "circuit_open",
+                        "request_id": request_id,
+                        "user_id": user_id,
+                    },
+                )
                 continue
 
             module_path = PROVIDER_MODULES.get(name)
             if not module_path:
                 continue
+
             try:
                 module = import_module(module_path)
                 ProviderClass = getattr(module, 'Provider')
                 provider = ProviderClass()
             except Exception as exc:
-                logger.exception('Failed to load provider module %s: %s', module_path, exc)
+                logger.error(
+                    "Failed to load provider module",
+                    extra={
+                        "operation": operation,
+                        "entity": entity,
+                        "provider": name,
+                        "status": "failure",
+                        "error_code": "provider_import_error",
+                        "error_message": str(exc),
+                        "request_id": request_id,
+                        "user_id": user_id,
+                    },
+                )
                 self._record_failure(name)
                 errors.append({name: str(exc)})
                 continue
+
 
             try:
-                # Each provider verifies and returns a dict
+                start = time.time()
                 res = provider.verify(address=address, country_code=country_code)
+                latency = time.time() - start
             except Exception as exc:
-                logger.exception('Provider %s raised exception: %s', name, exc)
+                logger.error(
+                    "Provider call failed",
+                    extra={
+                        "operation": operation,
+                        "entity": entity,
+                        "provider": name,
+                        "status": "failure",
+                        "error_code": "provider_call_error",
+                        "error_message": str(exc),
+                        "request_id": request_id,
+                        "user_id": user_id,
+                    },
+                )
                 self._record_failure(name)
                 errors.append({name: str(exc)})
                 continue
 
+
             if not isinstance(res, dict):
+                logger.error(
+                    "Invalid provider response",
+                    extra={
+                        "operation": operation,
+                        "entity": entity,
+                        "provider": name,
+                        "status": "failure",
+                        "error_code": "invalid_provider_response",
+                        "request_id": request_id,
+                        "user_id": user_id,
+                    },
+                )
                 self._record_failure(name)
                 errors.append({name: 'invalid provider response'})
                 continue
 
+
             if res.get('ok'):
-                # success: normalize and cache result
                 result = {
                     'ok': True,
                     'provider': name,
@@ -138,15 +203,48 @@ class AddressVerificationService:
                     'suggestions': res.get('suggestions', []),
                 }
                 self._set_cached(norm, result)
-                # reset failure count on success
                 self._reset_failures(name)
-                logger.info('Address verified by %s', name)
+                logger.info(
+                    "Address verified",
+                    extra={
+                        "operation": operation,
+                        "entity": entity,
+                        "provider": name,
+                        "status": "success",
+                        "latency_ms": int(latency * 1000),
+                        "request_id": request_id,
+                        "user_id": user_id,
+                    },
+                )
                 return result
             else:
-                # record failure and continue to next provider
                 self._record_failure(name)
+                logger.warning(
+                    "Provider verification failed",
+                    extra={
+                        "operation": operation,
+                        "entity": entity,
+                        "provider": name,
+                        "status": "failure",
+                        "error_code": "verification_failed",
+                        "error_message": res.get('error', 'verification failed'),
+                        "request_id": request_id,
+                        "user_id": user_id,
+                    },
+                )
                 errors.append({name: res.get('error', 'verification failed')})
 
         # nothing succeeded
-        logger.warning('All providers failed for address: %s', errors)
+        logger.error(
+            "All providers failed for address",
+            extra={
+                "operation": operation,
+                "entity": entity,
+                "status": "failure",
+                "error_code": "all_providers_failed",
+                "error_message": str(errors),
+                "request_id": request_id,
+                "user_id": user_id,
+            },
+        )
         return {'ok': False, 'errors': errors}

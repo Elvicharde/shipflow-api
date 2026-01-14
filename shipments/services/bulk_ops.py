@@ -3,11 +3,15 @@ from typing import Dict, List, Any
 
 from django.db import transaction
 
+
 from ..models import Shipment
 from ..serializers import AddressSerializer, PackageSerializer
 from .pricing import calculate_price_for_package
 from django.db import transaction
 from shipments.models import Shipment
+from core.logger import get_logger
+
+logger = get_logger()
 
 # Backend price logic matching frontend Step4Review.simulateCost
 def calculate_step4review_price(service: str, option: str) -> float:
@@ -25,18 +29,61 @@ def bulk_update_shipping_service_and_option(session, shipment_updates):
     shipment_updates: list of dicts with keys: shipment_id, shipping_service, shipping_option
     Update each shipment individually using assign_shipping_service.
     """
+    request_id = None
+    user_id = None
+    operation = "bulk_update_shipping_service_and_option"
+    entity = "shipment"
+    logger.info(
+        "Bulk update shipping service/option started",
+        extra={
+            "operation": operation,
+            "entity": entity,
+            "status": "start",
+            "count": len(shipment_updates) if shipment_updates else 0,
+            "request_id": request_id,
+            "user_id": user_id,
+        },
+    )
     if not shipment_updates:
         return []
     updated = []
+    failed = 0
     for upd in shipment_updates:
-        shipment = Shipment.objects.get(pk=upd['shipment_id'], upload_session=session)
-        from shipments.services.shipment_update import assign_shipping_service_option
-        assign_shipping_service_option(shipment, upd['shipping_service'], upd.get('shipping_option'))
-        # Calculate and set price_cents using backend logic
-        price = calculate_step4review_price(upd['shipping_service'], upd.get('shipping_option', 'priority'))
-        shipment.price_cents = int(price * 100)
-        shipment.save()
-        updated.append(shipment)
+        try:
+            shipment = Shipment.objects.get(pk=upd['shipment_id'], upload_session=session)
+            from shipments.services.shipment_update import assign_shipping_service_option
+            assign_shipping_service_option(shipment, upd['shipping_service'], upd.get('shipping_option'))
+            price = calculate_step4review_price(upd['shipping_service'], upd.get('shipping_option', 'priority'))
+            shipment.price_cents = int(price * 100)
+            shipment.save()
+            updated.append(shipment)
+        except Exception as exc:
+            failed += 1
+            logger.error(
+                "Bulk update failed for shipment",
+                extra={
+                    "operation": operation,
+                    "entity": entity,
+                    "shipment_id": upd.get('shipment_id'),
+                    "status": "failure",
+                    "error_code": "bulk_update_error",
+                    "error_message": str(exc),
+                    "request_id": request_id,
+                    "user_id": user_id,
+                },
+            )
+    logger.info(
+        "Bulk update shipping service/option completed",
+        extra={
+            "operation": operation,
+            "entity": entity,
+            "status": "success" if failed == 0 else ("partial" if updated else "failure"),
+            "updated_count": len(updated),
+            "failed_count": failed,
+            "request_id": request_id,
+            "user_id": user_id,
+        },
+    )
     return updated
 
 
@@ -46,6 +93,21 @@ def _fetch_shipments(ids: List[int]) -> List[Shipment]:
 
 
 def update_ship_from(shipment_ids: List[int], address_data: Dict[str, Any]) -> Dict[str, Any]:
+    request_id = None
+    user_id = None
+    operation = "bulk_update_ship_from"
+    entity = "shipment"
+    logger.info(
+        "Bulk update ship_from started",
+        extra={
+            "operation": operation,
+            "entity": entity,
+            "status": "start",
+            "count": len(shipment_ids),
+            "request_id": request_id,
+            "user_id": user_id,
+        },
+    )
     shipments = _fetch_shipments(shipment_ids)
     errors: Dict[int, Any] = {}
     updated: List[int] = []
@@ -54,26 +116,50 @@ def update_ship_from(shipment_ids: List[int], address_data: Dict[str, Any]) -> D
 
     with transaction.atomic():
         for s in shipments:
-            # If payload is only an id, treat it as assignment to an existing Address
             if 'id' in address_data and len(address_data.keys()) == 1:
                 addr_id = address_data.get('id')
                 try:
                     addr = Address.objects.get(pk=addr_id)
-                except Address.DoesNotExist:
+                except Address.DoesNotExist as exc:
                     errors[s.pk] = {'id': [f'Address with id {addr_id} not found.']}
+                    logger.error(
+                        "Ship_from update failed: address not found",
+                        extra={
+                            "operation": operation,
+                            "entity": entity,
+                            "shipment_id": s.pk,
+                            "status": "failure",
+                            "error_code": "address_not_found",
+                            "error_message": str(exc),
+                            "request_id": request_id,
+                            "user_id": user_id,
+                        },
+                    )
                     continue
                 s.ship_from = addr
                 s.save(update_fields=['ship_from', 'updated_at'])
                 updated.append(s.pk)
                 continue
 
-            # Otherwise, clone the base address (use provided id as base if present)
             base_addr = s.ship_from
             if 'id' in address_data:
                 try:
                     base_addr = Address.objects.get(pk=address_data.get('id'))
-                except Address.DoesNotExist:
+                except Address.DoesNotExist as exc:
                     errors[s.pk] = {'id': [f'Address with id {address_data.get("id")} not found.']}
+                    logger.error(
+                        "Ship_from update failed: base address not found",
+                        extra={
+                            "operation": operation,
+                            "entity": entity,
+                            "shipment_id": s.pk,
+                            "status": "failure",
+                            "error_code": "base_address_not_found",
+                            "error_message": str(exc),
+                            "request_id": request_id,
+                            "user_id": user_id,
+                        },
+                    )
                     continue
 
             base = {
@@ -95,12 +181,49 @@ def update_ship_from(shipment_ids: List[int], address_data: Dict[str, Any]) -> D
                 updated.append(s.pk)
             else:
                 errors[s.pk] = serializer.errors
+                logger.error(
+                    "Ship_from update failed: serializer invalid",
+                    extra={
+                        "operation": operation,
+                        "entity": entity,
+                        "shipment_id": s.pk,
+                        "status": "failure",
+                        "error_code": "serializer_invalid",
+                        "error_message": str(serializer.errors),
+                        "request_id": request_id,
+                        "user_id": user_id,
+                    },
+                )
 
     found_ids = {s.pk for s in shipments}
     missing = [i for i in shipment_ids if i not in found_ids]
     for m in missing:
         errors[m] = {'shipment': ['Not found.']}
+        logger.error(
+            "Ship_from update failed: shipment not found",
+            extra={
+                "operation": operation,
+                "entity": entity,
+                "shipment_id": m,
+                "status": "failure",
+                "error_code": "shipment_not_found",
+                "request_id": request_id,
+                "user_id": user_id,
+            },
+        )
 
+    logger.info(
+        "Bulk update ship_from completed",
+        extra={
+            "operation": operation,
+            "entity": entity,
+            "status": "success" if len(errors) == 0 else ("partial" if updated else "failure"),
+            "updated_count": len(updated),
+            "failed_count": len(errors),
+            "request_id": request_id,
+            "user_id": user_id,
+        },
+    )
     return {'updated': updated, 'errors': errors}
 
 

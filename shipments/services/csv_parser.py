@@ -8,7 +8,11 @@ from rest_framework.exceptions import ValidationError
 
 from ..serializers import AddressSerializer, PackageSerializer
 
+
 from ..lib.constants import CSV_COLUMN_MAP
+from core.logger import get_logger
+
+logger = get_logger()
 
 
 
@@ -70,6 +74,10 @@ def parse_csv(file_like: Iterable[str]) -> List[Dict[str, Any]]:
       }
     """
     # Accept strings, file-like or iterables of lines
+    request_id = None
+    user_id = None
+    operation = "csv_parse"
+    entity = "csv_file"
     if hasattr(file_like, 'read'):
         content = file_like.read()
         file_like = StringIO(content)
@@ -80,11 +88,38 @@ def parse_csv(file_like: Iterable[str]) -> List[Dict[str, Any]]:
         next(reader)
         next(reader)
     except StopIteration:
+        logger.warning(
+            "CSV file missing headers or empty",
+            extra={
+                "operation": operation,
+                "entity": entity,
+                "status": "failure",
+                "error_code": "missing_headers",
+                "request_id": request_id,
+                "user_id": user_id,
+            },
+        )
         return []
 
     results: List[Dict[str, Any]] = []
     for idx, row in enumerate(reader, start=1):
-        record = _row_to_record(row)
+        try:
+            record = _row_to_record(row)
+        except Exception as exc:
+            logger.error(
+                "Malformed CSV row",
+                extra={
+                    "operation": operation,
+                    "entity": "csv_row",
+                    "row_number": idx,
+                    "status": "failure",
+                    "error_code": "malformed_row",
+                    "error_message": str(exc),
+                    "request_id": request_id,
+                    "user_id": user_id,
+                },
+            )
+            continue
         ship_from = {
             'name': f"{record['ship_from_first_name']} {record['ship_from_last_name']}",
             'address_line1': record['ship_from_address_line1'],
@@ -119,11 +154,20 @@ def parse_csv(file_like: Iterable[str]) -> List[Dict[str, Any]]:
             'price_cents': None,
             'order_number': record['order_number'],
         }
-
         results.append({
             'row': idx,
             'raw': row,
             'data': shipment_payload,
         })
-
+    logger.info(
+        "CSV parsing complete",
+        extra={
+            "operation": operation,
+            "entity": entity,
+            "status": "success",
+            "row_count": len(results),
+            "request_id": request_id,
+            "user_id": user_id,
+        },
+    )
     return results

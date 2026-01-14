@@ -8,8 +8,12 @@ from ..models.upload_session import UploadSession, UploadSessionStatus
 from ..models.shipment import Shipment, ShipmentStatus, ValidationStatus, PricingStatus
 from ..models.address import Address
 from ..models.package import Package
+
 from .validation import validate_row
 from .csv_parser import parse_csv
+from core.logger import get_logger
+
+logger = get_logger()
 
 def format_address(addr: Address | None) -> str:
     if not addr:
@@ -49,6 +53,23 @@ def process_csv_upload(file_like) -> Dict[str, Any]:
 
     Returns a summary payload for the frontend wizard with the original shape.
     """
+
+    request_id = None  # Optionally extract from context/middleware if available
+    user_id = None     # Optionally extract from context/middleware if available
+    operation = "csv_upload"
+    entity = "csv_file"
+    status = "start"
+    logger.info(
+        "CSV upload started",
+        extra={
+            "operation": operation,
+            "entity": entity,
+            "status": status,
+            "request_id": request_id,
+            "user_id": user_id,
+        },
+    )
+
     # Normalize input into a text-mode file-like object
     if hasattr(file_like, "read"):
         content = file_like.read()
@@ -61,58 +82,88 @@ def process_csv_upload(file_like) -> Dict[str, Any]:
     # Create a new upload session
     session = UploadSession.objects.create(status=UploadSessionStatus.UPLOADED)
 
-    # Parse rows from CSV (parse_csv is expected to skip fully empty rows already)
-    rows = parse_csv(file_obj)
-    total = len(rows)
+
+    # Parse rows from CSV
+    try:
+        rows = parse_csv(file_obj)
+        total = len(rows)
+        logger.info(
+            "CSV parsed",
+            extra={
+                "operation": operation,
+                "entity": entity,
+                "status": "parsed",
+                "row_count": total,
+                "request_id": request_id,
+                "user_id": user_id,
+            },
+        )
+    except Exception as exc:
+        logger.error(
+            "CSV parsing failed",
+            extra={
+                "operation": operation,
+                "entity": entity,
+                "status": "failure",
+                "error_code": "csv_parse_error",
+                "error_message": str(exc),
+                "request_id": request_id,
+                "user_id": user_id,
+            },
+        )
+        raise
 
     created = 0   # number of VALID rows
     invalid = 0   # number of INVALID rows
     errors: List[Dict[str, Any]] = []
     results: List[Dict[str, Any]] = []
 
+
     for idx, row in enumerate(rows, start=1):
-        # Double-guard: skip fully empty rows (in case parse_csv didn't)
         if not any(row.values()):
             continue
 
-        # Validate the row using provided validator; collect grouped field errors
+        # Validate the row
         valid, field_errors = validate_row(row)
         validation_status = ValidationStatus.VALID if valid else ValidationStatus.INVALID
-
-        # Upload phase: pricing deferred
         price = None
-        currency = "USD"  # keep payload shape consistent
-
-        # Attempt to persist this row independently so one failure doesn't abort the batch
+        currency = "USD"
+        entity = "csv_row"
         try:
             with transaction.atomic():
-                # Build related objects required by the Shipment model (FKs are mandatory)
                 ship_from_obj = Address.objects.create(**(row.get('data').get("ship_from") or {}))
                 ship_to_obj = Address.objects.create(**(row.get('data').get("ship_to") or {}))
                 package_obj = Package.objects.create(**(row.get('data').get("package") or {}))
-
                 shipment = Shipment.objects.create(
                     upload_session=session,
                     ship_from=ship_from_obj,
                     ship_to=ship_to_obj,
                     package=package_obj,
-                    # shipping_service is optional at upload; store if present, else None
                     shipping_service=row.get("shipping_service"),
-                    price_cents=None,  # not computed during upload
+                    price_cents=None,
                     status=ShipmentStatus.CREATED,
                     validation_status=validation_status,
                     validation_errors=field_errors or {},
                     pricing_status=PricingStatus.UNPRICED,
                     row_number=idx,
                 )
-
-            # Tally counts & per-row result
+            logger.info(
+                "Row processed",
+                extra={
+                    "operation": operation,
+                    "entity": entity,
+                    "row_number": idx,
+                    "status": "success" if valid else "invalid",
+                    "request_id": request_id,
+                    "user_id": user_id,
+                    "validation_errors": field_errors if not valid else None,
+                },
+            )
             if validation_status == ValidationStatus.VALID:
                 created += 1
             else:
                 invalid += 1
                 errors.append({"row": idx, "errors": field_errors or {}})
-
             results.append({
                 "row": idx,
                 "shipment_id": shipment.id,
@@ -125,9 +176,7 @@ def process_csv_upload(file_like) -> Dict[str, Any]:
                 "package_details": format_package(package_obj),
                 "order_number": getattr(shipment, "order_number", None),
             })
-
         except Exception as exc:
-            # If we cannot persist this particular row (e.g., model constraints), record the error
             invalid += 1
             persist_errors = {"persist": [str(exc)]}
             errors.append({"row": idx, "errors": persist_errors})
@@ -143,20 +192,46 @@ def process_csv_upload(file_like) -> Dict[str, Any]:
                 "package_details": None,
                 "order_number": None,
             })
+            logger.error(
+                "Row persistence failed",
+                extra={
+                    "operation": operation,
+                    "entity": entity,
+                    "row_number": idx,
+                    "status": "failure",
+                    "error_code": "row_persist_error",
+                    "error_message": str(exc),
+                    "request_id": request_id,
+                    "user_id": user_id,
+                },
+            )
+
 
     # Update session aggregates & status
     session.rows_total = total
     session.rows_valid = created
     session.rows_invalid = invalid
-    # Session status: all valid -> VALIDATED; any invalid -> PARTIAL_VALID
     session.status = (
-        UploadSessionStatus.VALIDATED if created > 0 and invalid == 0 
-        else UploadSessionStatus.PARTIAL_VALID if created > 0 and invalid > 0 
+        UploadSessionStatus.VALIDATED if created > 0 and invalid == 0
+        else UploadSessionStatus.PARTIAL_VALID if created > 0 and invalid > 0
         else UploadSessionStatus.INVALID
     )
     session.save()
 
-    # Return summary payload (unchanged contract)
+    logger.info(
+        "CSV upload completed",
+        extra={
+            "operation": operation,
+            "entity": "csv_file",
+            "status": "success" if created > 0 and invalid == 0 else ("partial" if created > 0 else "failure"),
+            "row_count": total,
+            "valid_rows": created,
+            "invalid_rows": invalid,
+            "request_id": request_id,
+            "user_id": user_id,
+        },
+    )
+
     return {
         "upload_session_id": str(session.id),
         "total_rows": total,

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from core.logger import get_logger
 from typing import Dict
 
 from rest_framework.views import APIView
@@ -19,6 +20,8 @@ from ..serializers.shipment import ShipmentReadSerializer
 
 from ..models import Shipment
 
+
+logger = get_logger()
 
 def upload_session_summary(upload_session_id) -> Dict[str, int]:
     """
@@ -92,10 +95,33 @@ class ShipmentAssignServiceView(APIView):
         try:
             result = assign_shipping_service(int(pk), serializer.validated_data["shipping_service"])
         except ValueError as exc:
+            logger.warning(
+                "Assign service failed: shipment not found or invalid",
+                extra={
+                    "operation": "assign_shipping_service",
+                    "entity": "shipment",
+                    "status": "failure",
+                    "shipment_id": pk,
+                    "error_message": str(exc),
+                    "request_id": request.headers.get('X-Request-Id'),
+                    "user_id": getattr(request.user, 'id', None) if hasattr(request, 'user') else None,
+                },
+            )
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         shipment = Shipment.objects.select_related("upload_session", "ship_from", "ship_to", "package").get(pk=pk)
         shipment_serializer = ShipmentReadSerializer(shipment, context={"request": request})
         summary = upload_session_summary(shipment.upload_session.id)
+        logger.info(
+            "Assign service completed",
+            extra={
+                "operation": "assign_shipping_service",
+                "entity": "shipment",
+                "status": "success",
+                "shipment_id": pk,
+                "request_id": request.headers.get('X-Request-Id'),
+                "user_id": getattr(request.user, 'id', None) if hasattr(request, 'user') else None,
+            },
+        )
         return Response({
             "shipment": shipment_serializer.data,
             "assign_result": result,

@@ -1,8 +1,12 @@
 from __future__ import annotations
 from typing import Any, Dict, Tuple, Union
 
+
 from ..models import Address, Package, Shipment
 from ..serializers import AddressSerializer, PackageSerializer
+from core.logger import get_logger
+
+logger = get_logger()
 
 
 def validate_row(row: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
@@ -11,6 +15,11 @@ def validate_row(row: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
     Returns (is_valid, errors)
     """
     errors = {}
+    request_id = None
+    user_id = None
+    operation = "row_validation"
+    entity = "csv_row"
+    row_number = row.get("row")
 
     # Sender address
     sender = row.get("data").get('ship_from', {})
@@ -34,6 +43,18 @@ def validate_row(row: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
             errors.setdefault('package', {})[field] = 'This field is required.'
 
     is_valid = not errors
+    logger.info(
+        "Row validation complete",
+        extra={
+            "operation": operation,
+            "entity": entity,
+            "row_number": row_number,
+            "status": "success" if is_valid else "failure",
+            "failed_fields": list(errors.keys()) if errors else None,
+            "request_id": request_id,
+            "user_id": user_id,
+        },
+    )
     return is_valid, errors
 
 
