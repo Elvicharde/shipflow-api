@@ -141,7 +141,6 @@ class UploadSessionSummaryView(APIView):
 from rest_framework.permissions import IsAuthenticated
 
 class ShipmentEditView(APIView):
-    authentication_classes = []
     permission_classes = [IsAuthenticated]
     def patch(self, request, shipment_id):
         result = update_shipment(shipment_id, request.data)
