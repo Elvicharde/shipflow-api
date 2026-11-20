@@ -70,5 +70,5 @@ Additional assumptions and trade-offs are documented where relevant in the codeb
 
 ## Status
 
-This API is part of a technical assessment project and is hosted for evaluation purposes.
+Deployed.
 
