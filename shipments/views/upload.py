@@ -18,7 +18,6 @@ from shipments.models.shipment import Shipment
 from rest_framework.permissions import IsAuthenticated
 
 class UploadCSVView(APIView):
-    authentication_classes = []
     permission_classes = [IsAuthenticated]
     """
     POST /api/shipments/upload/
